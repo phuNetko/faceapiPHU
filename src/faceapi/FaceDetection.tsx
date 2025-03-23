@@ -38,6 +38,8 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
   const [matchedName, setMatchedName] = useState<string | null>(null);
   const dispatch = useDispatch();
   const streamRef = useRef<MediaStream | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const startVideo = async () => {
@@ -49,10 +51,19 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
         console.error("❌ Lỗi khi mở camera:", error);
       }
     };
+
     const stopVideo = () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
         streamRef.current = null;
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
 
@@ -60,12 +71,15 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
       if (!videoRef.current || !canvasRef.current) return;
       const video = videoRef.current;
       const canvas = canvasRef.current;
+      
       video.addEventListener("loadeddata", async () => {
         console.log("📸 Camera đã sẵn sàng!");
         const displaySize = { width: video.videoWidth, height: video.videoHeight };
         faceapi.matchDimensions(canvas, displaySize);
 
-        setInterval(async () => {
+        const detectAndDraw = async () => {
+          if (!video || !canvas) return;
+          
           const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
           const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
@@ -96,12 +110,16 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
               ctx.closePath();
             });
           }
-        }, 100);
+          animationFrameRef.current = requestAnimationFrame(detectAndDraw);
+        };
+        // Sử dụng requestAnimationFrame thay vì setInterval
+        detectAndDraw();
       });
     };
+
     if (isOpen) {
-      try{
-        dispatch(setIsLoading(true)); 
+      try {
+        dispatch(setIsLoading(true));
         loadModels().then(() => {
           startVideo().then(detectFaces);
         });

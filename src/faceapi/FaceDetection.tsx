@@ -3,7 +3,8 @@ import * as faceapi from "@vladmandic/face-api";
 import { FaCamera } from "react-icons/fa";
 import { FaDeleteLeft } from "react-icons/fa6";
 import { setIsLoading } from "../store/statusSlice";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
+import { RootState } from "../store/store";
 import { toastError, toastInfo, toastSuccess, toastWarning } from "../ultils/toast";
 import { ToastContainer } from "react-toastify";
 import { checkLiveness } from "../ultils/checkFakeFace";
@@ -28,23 +29,33 @@ const loadModels = async () => {
   } finally {
   }
 };
-const FaceDetection: React.FC<{ isOpen: boolean, isRegister: boolean }> = ({ isOpen,   isRegister }) => {
+const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
+  const isOpen = useSelector((state: RootState) => state.statusApp.isOpenVideo);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [faceVector, setFaceVector] = useState<number[] | null>(null);
   const [name, setName] = useState("");
   const [matchedName, setMatchedName] = useState<string | null>(null);
   const dispatch = useDispatch();
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     const startVideo = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 400, height: 400 } });
+        streamRef.current = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
       } catch (error) {
         console.error("❌ Lỗi khi mở camera:", error);
       }
     };
+    const stopVideo = () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    };
+
     const detectFaces = async () => {
       if (!videoRef.current || !canvasRef.current) return;
       const video = videoRef.current;
@@ -57,16 +68,13 @@ const FaceDetection: React.FC<{ isOpen: boolean, isRegister: boolean }> = ({ isO
         setInterval(async () => {
           const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
           const resizedDetections = faceapi.resizeResults(detections, displaySize);
-          // console.log(resizedDetections);
 
           const ctx = canvas.getContext("2d");
           if (ctx) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            // faceapi.draw.drawDetections(canvas, resizedDetections);
             resizedDetections.forEach((detection) => {
               const { x, y, width, height } = detection.box;
               const cornerSize = 30;
-              // 🌟 Vẽ khung nhưng KHÔNG hiển thị số
               ctx.strokeStyle = "rgba(52, 173, 218, 0.9)";
               ctx.lineWidth = 10;
               ctx.shadowColor = "rgba(0, 0, 0, 1)";
@@ -91,11 +99,25 @@ const FaceDetection: React.FC<{ isOpen: boolean, isRegister: boolean }> = ({ isO
         }, 100);
       });
     };
+    if (isOpen) {
+      try{
+        dispatch(setIsLoading(true)); 
+        loadModels().then(() => {
+          startVideo().then(detectFaces);
+        });
+      } catch (error) {
+        console.error("❌ Lỗi khi tải models:", error);
+      } finally {
+        dispatch(setIsLoading(false));
+      }
+    } else {
+      stopVideo();
+    }
 
-    loadModels().then(() => {
-      startVideo().then(detectFaces);
-    });
-  }, []);
+    return () => {
+      stopVideo();
+    };
+  }, [isOpen]);
 
   const captureFace = async () => {
     if (!videoRef.current) return;
@@ -216,7 +238,7 @@ const FaceDetection: React.FC<{ isOpen: boolean, isRegister: boolean }> = ({ isO
           <FaDeleteLeft />
         </button>
       </div>
-      <ToastContainer style={{ zIndex: 99999 }} />
+      <ToastContainer className='z-[99999999]' />
     </div>
   );
 };

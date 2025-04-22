@@ -8,7 +8,10 @@ import { RootState } from "../store/store";
 import { toastError, toastInfo, toastSuccess, toastWarning } from "../ultils/toast";
 import { ToastContainer } from "react-toastify";
 import { checkLiveness } from "../ultils/checkFakeFace";
+let isModelLoaded = false;
+
 const loadModels = async () => {
+  if (isModelLoaded) return;
   try {
     console.log("⏳ Đang tải models...");
     await faceapi.nets.tinyFaceDetector.loadFromUri("/models").catch((error) => {
@@ -27,9 +30,10 @@ const loadModels = async () => {
   } catch (error) {
     console.error("❌ Lỗi khi tải models:", error);
   } finally {
+    isModelLoaded = true;
   }
 };
-const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
+const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
   const isOpen = useSelector((state: RootState) => state.statusApp.isOpenVideo);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -71,7 +75,7 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
       if (!videoRef.current || !canvasRef.current) return;
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      
+      let lastDetectionTime = 0;
       video.addEventListener("loadeddata", async () => {
         console.log("📸 Camera đã sẵn sàng!");
         const displaySize = { width: video.videoWidth, height: video.videoHeight };
@@ -79,36 +83,39 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
 
         const detectAndDraw = async () => {
           if (!video || !canvas) return;
-          
-          const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-          const resizedDetections = faceapi.resizeResults(detections, displaySize);
+          const now = Date.now();
+          if (now - lastDetectionTime >= 200) {
+            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+            const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
-          const ctx = canvas.getContext("2d");
-          if (ctx) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            resizedDetections.forEach((detection) => {
-              const { x, y, width, height } = detection.box;
-              const cornerSize = 30;
-              ctx.strokeStyle = "rgba(52, 173, 218, 0.9)";
-              ctx.lineWidth = 10;
-              ctx.shadowColor = "rgba(0, 0, 0, 1)";
-              ctx.shadowBlur = 10;
-              ctx.beginPath();
-              ctx.moveTo(x, y + cornerSize - 50);
-              ctx.lineTo(x, y - 50);
-              ctx.lineTo(x + cornerSize, y - 50);
-              ctx.moveTo(x + width - cornerSize, y - 50);
-              ctx.lineTo(x + width, y - 50);
-              ctx.lineTo(x + width, y + cornerSize - 50);
-              ctx.moveTo(x + width, y + height - cornerSize - 50);
-              ctx.lineTo(x + width, y + height - 50);
-              ctx.lineTo(x + width - cornerSize, y + height - 50);
-              ctx.moveTo(x + cornerSize, y + height - 50);
-              ctx.lineTo(x, y + height - 50);
-              ctx.lineTo(x, y + height - cornerSize - 50);
-              ctx.stroke();
-              ctx.closePath();
-            });
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              resizedDetections.forEach((detection) => {
+                const { x, y, width, height } = detection.box;
+                const cornerSize = 30;
+                ctx.strokeStyle = "rgba(52, 173, 218, 0.9)";
+                ctx.lineWidth = 10;
+                ctx.shadowColor = "rgba(0, 0, 0, 1)";
+                ctx.shadowBlur = 10;
+                ctx.beginPath();
+                ctx.moveTo(x, y + cornerSize - 50);
+                ctx.lineTo(x, y - 50);
+                ctx.lineTo(x + cornerSize, y - 50);
+                ctx.moveTo(x + width - cornerSize, y - 50);
+                ctx.lineTo(x + width, y - 50);
+                ctx.lineTo(x + width, y + cornerSize - 50);
+                ctx.moveTo(x + width, y + height - cornerSize - 50);
+                ctx.lineTo(x + width, y + height - 50);
+                ctx.lineTo(x + width - cornerSize, y + height - 50);
+                ctx.moveTo(x + cornerSize, y + height - 50);
+                ctx.lineTo(x, y + height - 50);
+                ctx.lineTo(x, y + height - cornerSize - 50);
+                ctx.stroke();
+                ctx.closePath();
+              });
+            }
+
           }
           animationFrameRef.current = requestAnimationFrame(detectAndDraw);
         };
@@ -154,6 +161,11 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
         const vector = Array.from(detections.descriptor);
         setFaceVector(vector);
         const storedData = JSON.parse(localStorage.getItem("faceData") || "[]");
+        const alreadyExists =  isFaceAlreadyExists(vector, storedData);
+        if (alreadyExists) {
+          toastWarning("⚠️ Khuôn mặt này đã tồn tại trong hệ thống!")();
+          return;
+        }
         const newData = [...storedData, { name, faceVector: vector }];
         localStorage.setItem("faceData", JSON.stringify(newData));
         toastSuccess("Đã thêm khuôn mặt thành công!!!")();
@@ -167,6 +179,16 @@ const FaceDetection: React.FC<{isRegister: boolean }> = ({ isRegister }) => {
     } finally {
       dispatch(setIsLoading(false));
     }
+  };
+  const isFaceAlreadyExists =  (
+    newDescriptor: number[],  // <-- hoặc Float32Array đều OK
+    existingData: { name: string; faceVector: number[] }[],
+    threshold: number = 0.5
+  ): boolean => {
+    return existingData.some((item) => {
+      const distance = faceapi.euclideanDistance(newDescriptor, item.faceVector);
+      return distance < threshold;
+    });
   };
 
   const compareFace = async () => {

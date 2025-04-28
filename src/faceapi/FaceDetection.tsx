@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as faceapi from "@vladmandic/face-api";
 import { FaCamera } from "react-icons/fa";
 import { FaDeleteLeft } from "react-icons/fa6";
 import { setIsLoading } from "../store/statusSlice";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "../store/store";
-import { toastError, toastInfo, toastSuccess, toastWarning } from "../ultils/toast";
+import { toastError, toastSuccess, toastWarning } from "../ultils/toast";
 import { ToastContainer } from "react-toastify";
 let isModelLoaded = false;
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as faceapi from "@vladmandic/face-api";
 import { FaCamera } from "react-icons/fa";
 import { FaDeleteLeft } from "react-icons/fa6";
@@ -7,7 +7,6 @@ import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "../store/store";
 import { toastError, toastInfo, toastSuccess, toastWarning } from "../ultils/toast";
 import { ToastContainer } from "react-toastify";
-import { checkLiveness } from "../ultils/checkFakeFace";
 let isModelLoaded = false;
 
 const loadModels = async () => {
@@ -37,13 +36,13 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
   const isOpen = useSelector((state: RootState) => state.statusApp.isOpenVideo);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [faceVector, setFaceVector] = useState<number[] | null>(null);
   const [name, setName] = useState("");
-  const [matchedName, setMatchedName] = useState<string | null>(null);
   const dispatch = useDispatch();
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const [showInstruction, setShowInstruction] = useState(true);
+
 
   useEffect(() => {
     const startVideo = async () => {
@@ -144,6 +143,8 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
     };
   }, [isOpen]);
 
+
+
   const captureFace = async () => {
     if (!videoRef.current) return;
     if (name == "") {
@@ -159,9 +160,8 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
         .withFaceDescriptor();
       if (detections) {
         const vector = Array.from(detections.descriptor);
-        setFaceVector(vector);
         const storedData = JSON.parse(localStorage.getItem("faceData") || "[]");
-        const alreadyExists =  isFaceAlreadyExists(vector, storedData);
+        const alreadyExists = isFaceAlreadyExists(vector, storedData);
         if (alreadyExists) {
           toastWarning("⚠️ Khuôn mặt này đã tồn tại trong hệ thống!")();
           return;
@@ -180,7 +180,7 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
       dispatch(setIsLoading(false));
     }
   };
-  const isFaceAlreadyExists =  (
+  const isFaceAlreadyExists = (
     newDescriptor: number[],  // <-- hoặc Float32Array đều OK
     existingData: { name: string; faceVector: number[] }[],
     threshold: number = 0.5
@@ -191,17 +191,12 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
     });
   };
 
+
+
   const compareFace = async () => {
     if (!videoRef.current) return;
-    toastInfo("🔍 Vui lòng di cử động nhẹ khuôn mặt trong khoảng 2s")();
     try {
       dispatch(setIsLoading(true));
-      const isLive = await checkLiveness(videoRef.current);
-      if (!isLive) {
-        toastWarning("🚨 Phát hiện ảnh tĩnh! Dừng quá trình đăng ký.")();
-        return;
-      }
-      console.log("✅ Liveness check thành công! Tiến hành quét khuôn mặt...");
       const detections = await faceapi
         .detectSingleFace(videoRef.current)
         .withFaceLandmarks()
@@ -211,18 +206,14 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
         toastError("❌ Không tìm thấy khuôn mặt!")();
         return;
       }
-
       const faceVector = detections.descriptor;
       const storedData = JSON.parse(localStorage.getItem("faceData") || "[]");
-
       if (!storedData.length) {
         toastWarning("⚠️ Không có dữ liệu khuôn mặt nào để so sánh!")();
         return;
       }
-
       let bestMatch = null;
       let minDistance = Infinity;
-
       storedData.forEach((item: { name: string; faceVector: number[] }) => {
         const distance = faceapi.euclideanDistance(faceVector, item.faceVector);
         console.log(`🔍 Khoảng cách với ${item.name}:`, distance);
@@ -234,10 +225,8 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
       });
 
       if (bestMatch) {
-        setMatchedName(bestMatch);
         toastSuccess(`✅ Nhận diện thành công: ${bestMatch}`)();
       } else {
-        setMatchedName(null);
         toastError("❌ Không khớp với ai trong dữ liệu!")();
       }
     } catch (error) {
@@ -246,6 +235,40 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
       dispatch(setIsLoading(false));
     }
   };
+  const getYawDirection = (landmarks: faceapi.FaceLandmarks68) => {
+    const nose = landmarks.getNose()[3];
+    const leftEye = landmarks.getLeftEye()[0];
+    const rightEye = landmarks.getRightEye()[3];
+    const eyeCenterX = (leftEye.x + rightEye.x) / 2;
+    const diff = nose.x - eyeCenterX;
+
+    if (diff > 9) return "left";
+    else if (diff < -9) return "right";
+    else return "center";
+  };
+
+
+  useEffect(() => {
+    let triggered = false;
+    const interval = setInterval(async () => {
+      if (triggered || !videoRef.current) return;
+      const detection = await faceapi
+        .detectSingleFace(videoRef.current)
+        .withFaceLandmarks();
+      if (!detection) return;
+      const direction = getYawDirection(detection.landmarks);
+      if (direction === "left" || direction === "right") {
+        console.log(direction);
+        triggered = true;
+        setShowInstruction(false);
+        setTimeout(async () => {
+          await compareFace(); // Gọi xác thực khuôn mặt
+        }, 1000);
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
   const deleteData = () => {
     dispatch(setIsLoading(true));
     localStorage.removeItem("faceData");
@@ -257,23 +280,35 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
 
   return (
     <div className="relative top-0 right-0 left-0 bottom-0 z-50 w-[600px] h-[620px] flex justify-center flex-col gap-3 items-center bg-white rounded-md ">
+        {showInstruction&&!isRegister && (
+          <div className="text-center text-base text-gray-600 bg-yellow-100 border border-yellow-300 rounded-md px-4 py-2 mt-2 animate-pulse">
+            👉 Hãy xoay đầu sang trái hoặc phải để bắt đầu xác thực khuôn mặt!
+          </div>
+        )}
       <div className="relative w-[350px] h-[350px] rounded-full flex-shrink-0 overflow-hidden">
         <video ref={videoRef} autoPlay muted className="absolute left-1/2 top-[-50%] -translate-x-1/2 translate-y-1/2 w-full h-full  scale-x-[-1]" />
         <canvas ref={canvasRef} className="absolute left-1/2 top-[-50%] -translate-x-1/2 translate-y-1/2 w-full h-full  scale-x-[-1] z-100" />
       </div>
       <div className="flex justify-center flex-col items-center gap-3">
-        <input
-          type="text"
-          placeholder="Enter your name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full h-full px-3 py-2 pl-0.5 outline-none border-b-2 border-black"
-        />
-        <button onClick={isRegister ? captureFace : compareFace} className=" w-auto px-5 py-2 cursor-pointer hover:bg-gray-100 hover:text-[#34addacc] font-medium bg-white rounded-full flex justify-center gap-2 items-center border-solid transition-all duration-100 hover:shadow-md">
-          <span>{isRegister ? "Register" : "Compare"}</span>
-          <FaCamera />
-        </button>
-        <button onClick={deleteData} className=" w-auto px-5 py-2 cursor-pointer hover:bg-gray-100 hover:text-red-500 font-medium bg-white rounded-full flex justify-center gap-2 items-center border-solid transition-all duration-100 hover:shadow-md">
+        {isRegister &&
+          <>
+            <input
+              type="text"
+              placeholder="Enter your name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full h-full px-3 py-2 pl-0.5 outline-none border-b-2 border-black"
+            />
+            <button
+              onClick={captureFace}
+              className=" w-auto px-5 py-2 cursor-pointer hover:bg-gray-100 hover:text-[#34addacc] font-medium bg-white rounded-full flex justify-center gap-2 items-center border-solid transition-all duration-100 hover:shadow-md">
+              <span>{"Register"}</span>
+              <FaCamera />
+            </button>
+          </>}
+        <button
+          onClick={deleteData}
+          className=" w-auto px-5 py-2 cursor-pointer hover:bg-gray-100 hover:text-red-500 font-medium bg-white rounded-full flex justify-center gap-2 items-center border-solid transition-all duration-100 hover:shadow-md">
           <span>Delete Data</span>
           <FaDeleteLeft />
         </button>

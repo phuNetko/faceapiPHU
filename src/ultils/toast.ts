@@ -49,7 +49,7 @@ export const toastWarning = (message: string) => {
 export const toastInfo = (message: string) => {
     const notify = () => toast.info(message, {
         position: "top-center",
-        autoClose: 5000,
+        autoClose: 500,
         hideProgressBar: false,
         closeOnClick: false,
         pauseOnHover: true,

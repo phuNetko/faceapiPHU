@@ -37,9 +37,7 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
   const isOpen = useSelector((state: RootState) => state.statusApp.isOpenVideo);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [faceVector, setFaceVector] = useState<number[] | null>(null);
   const [name, setName] = useState("");
-  const [matchedName, setMatchedName] = useState<string | null>(null);
   const dispatch = useDispatch();
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<number | null>(null);
@@ -159,7 +157,6 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
         .withFaceDescriptor();
       if (detections) {
         const vector = Array.from(detections.descriptor);
-        setFaceVector(vector);
         const storedData = JSON.parse(localStorage.getItem("faceData") || "[]");
         const alreadyExists =  isFaceAlreadyExists(vector, storedData);
         if (alreadyExists) {
@@ -234,10 +231,8 @@ const FaceDetection: React.FC<{ isRegister: boolean }> = ({ isRegister }) => {
       });
 
       if (bestMatch) {
-        setMatchedName(bestMatch);
         toastSuccess(`✅ Nhận diện thành công: ${bestMatch}`)();
       } else {
-        setMatchedName(null);
         toastError("❌ Không khớp với ai trong dữ liệu!")();
       }
     } catch (error) {
